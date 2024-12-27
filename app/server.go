@@ -22,15 +22,15 @@ func main() {
 	defer l.Close()
 	fmt.Println("Listening on :6379...")
 
-	// for {
-	conn, err := l.Accept()
-	fmt.Println("new connection created")
-	if err != nil {
-		fmt.Println("Error accepting connection: ", err.Error())
-		os.Exit(1)
+	for {
+		conn, err := l.Accept()
+		fmt.Println("new connection created")
+		if err != nil {
+			fmt.Println("Error accepting connection: ", err.Error())
+			os.Exit(1)
+		}
+		go handleClient(conn)
 	}
-	handleClient(conn)
-	// }
 }
 
 func handleClient(conn net.Conn) {
@@ -44,8 +44,6 @@ func handleClient(conn net.Conn) {
 		if err != nil {
 			break
 		}
-
-		// fmt.Println("Received data", buf[:n])
 
 		// Write new data
 		message := []byte("+PONG\r\n")
