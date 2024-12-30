@@ -76,18 +76,18 @@ func handleClient(conn net.Conn) {
 			mLenStr := fmt.Sprintf("$%d\r\n", mLen)
 			newMsg := mLenStr + strings.Join(commands[3:], "\r\n")
 			conn.Write([]byte(newMsg))
-			} else if strings.ToUpper(commands[2]) == "ECHO" {
-				p(msg, "ECHO COMMAND")
-				mLen, _ := strconv.Atoi((strings.Trim(commands[0], "*")))
-				mLen = mLen - 1
-				newMsg := ""
-				if mLen > 1 {
-					mLenStr := fmt.Sprintf("*%d\r\n", mLen)
-			// 		newMsg = mLenStr + strings.Join(commands[3:], "\r\n")
-			// 	} else {
-			// 		newMsg = strings.Join(commands[3:], "\r\n")
-			// 	}
-			// 	conn.Write([]byte(newMsg))
+		} else if strings.ToUpper(commands[2]) == "ECHO" {
+			p(msg, "ECHO COMMAND")
+			mLen, _ := strconv.Atoi((strings.Trim(commands[0], "*")))
+			mLen = mLen - 1
+			newMsg := ""
+			if mLen > 1 {
+				mLenStr := fmt.Sprintf("*%d\r\n", mLen)
+				newMsg = mLenStr + strings.Join(commands[3:], "\r\n")
+			} else {
+				newMsg = strings.Join(commands[3:], "\r\n")
+			}
+			conn.Write([]byte(newMsg))
 		} else {
 			p("UNRECOGNIZED COMMAND")
 			conn.Write([]byte("-ERR unrecognized command\r\n"))
