@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 )
 
@@ -69,25 +68,30 @@ func handleClient(conn net.Conn) {
 			conn.Write([]byte("+PONG\r\n"))
 		} else if strings.ToUpper(commands[2]) == "ECHO" {
 			p(msg, "ECHO COMMAND")
-			for i := 4; i < len(commands)-3; i += 2 {
-
+			var mStr []string
+			for i := 4; i < len(commands)-1; i += 2 {
+				mStr = append(mStr, commands[i])
 			}
-			mLen, _ := strconv.Atoi((strings.Trim(commands[0], "*")))
-			mLenStr := fmt.Sprintf("$%d\r\n", mLen)
-			newMsg := mLenStr + strings.Join(commands[3:], "\r\n")
+			mLen := strings.Join(mStr, " ")
+			// mLen, _ := strconv.Atoi((strings.Trim(commands[0], "*")))
+			mComp := fmt.Sprintf("$%d\r\n", len(mLen))
+			newMsg := fmt.Sprintf("%s\r\n%s\r\n", mComp, mStr[0:])
+			// newMsg := mComp + strings.Join(commands[3:], "\r\n")
+			p(mLen)
+			p(newMsg)
 			conn.Write([]byte(newMsg))
-		} else if strings.ToUpper(commands[2]) == "ECHO" {
-			p(msg, "ECHO COMMAND")
-			mLen, _ := strconv.Atoi((strings.Trim(commands[0], "*")))
-			mLen = mLen - 1
-			newMsg := ""
-			if mLen > 1 {
-				mLenStr := fmt.Sprintf("*%d\r\n", mLen)
-				newMsg = mLenStr + strings.Join(commands[3:], "\r\n")
-			} else {
-				newMsg = strings.Join(commands[3:], "\r\n")
-			}
-			conn.Write([]byte(newMsg))
+			// } else if strings.ToUpper(commands[2]) == "ECHO" {
+			// 	p(msg, "ECHO COMMAND")
+			// 	mLen, _ := strconv.Atoi((strings.Trim(commands[0], "*")))
+			// 	mLen = mLen - 1
+			// 	newMsg := ""
+			// 	if mLen > 1 {
+			// 		mLenStr := fmt.Sprintf("*%d\r\n", mLen)
+			// 		newMsg = mLenStr + strings.Join(commands[3:], "\r\n")
+			// 	} else {
+			// 		newMsg = strings.Join(commands[3:], "\r\n")
+			// 	}
+			// 	conn.Write([]byte(newMsg))
 		} else {
 			p("UNRECOGNIZED COMMAND")
 			conn.Write([]byte("-ERR unrecognized command\r\n"))
