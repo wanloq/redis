@@ -39,19 +39,6 @@ func handleClient(conn net.Conn) {
 	// Ensure we close the connection after we're done
 	defer conn.Close()
 
-	// for {
-	// 	// Read data
-	// 	buf := make([]byte, 1024)
-	// 	_, err := conn.Read(buf)
-	// 	if err != nil {
-	// 		return
-	// 	}
-
-	// 	// Write new data
-	// 	message := []byte("+PONG\r\n")
-	// 	conn.Write(message)
-	// }
-
 	for {
 		// Read data
 		buf := make([]byte, 1024)
@@ -62,43 +49,71 @@ func handleClient(conn net.Conn) {
 		}
 
 		// Write new data
-		commands := (strings.Split(msg, "\r\n"))
-		if strings.ToUpper(commands[2]) == "PING" {
-			p(msg, "PING COMMAND")
-			conn.Write([]byte("+PONG\r\n"))
-		} else if strings.ToUpper(commands[2]) == "ECHO" {
-			p(msg, "ECHO COMMAND")
-			var mStr []string
-			for i := 4; i < len(commands)-1; i += 2 {
-				mStr = append(mStr, commands[i])
-			}
-			mLen := strings.Join(mStr, " ")
-			// mLen, _ := strconv.Atoi((strings.Trim(commands[0], "*")))
-			mComp := fmt.Sprintf("$%d\r\n", len(mLen))
-			newMsg := fmt.Sprintf("%s\r\n%s\r\n", mComp, mStr[0:])
-			// newMsg := mComp + strings.Join(commands[3:], "\r\n")
-			p(mLen)
-			p(newMsg)
-			conn.Write([]byte(newMsg))
-			// } else if strings.ToUpper(commands[2]) == "ECHO" {
-			// 	p(msg, "ECHO COMMAND")
-			// 	mLen, _ := strconv.Atoi((strings.Trim(commands[0], "*")))
-			// 	mLen = mLen - 1
-			// 	newMsg := ""
-			// 	if mLen > 1 {
-			// 		mLenStr := fmt.Sprintf("*%d\r\n", mLen)
-			// 		newMsg = mLenStr + strings.Join(commands[3:], "\r\n")
-			// 	} else {
-			// 		newMsg = strings.Join(commands[3:], "\r\n")
-			// 	}
-			// 	conn.Write([]byte(newMsg))
-		} else {
-			p("UNRECOGNIZED COMMAND")
-			conn.Write([]byte("-ERR unrecognized command\r\n"))
-		}
+		newMsg := myParser(msg)
+		conn.Write([]byte(newMsg))
+
 	}
 }
 
-func bulkStrParse() {
+func myParser(msg string) string {
 
+	if strings.ToUpper(commands[2]) == "PING" {
+		p(msg, "PING COMMAND")
+		conn.Write([]byte("+PONG\r\n"))
+	} else if strings.ToUpper(commands[1]) == "$" {
+		p(msg, "BULK STRING RECEIVED")
+		var mStr []string
+		for i := 4; i < len(commands)-1; i += 2 {
+			mStr = append(mStr, commands[i])
+		}
+		mLen := strings.Join(mStr, " ")
+		// mLen, _ := strconv.Atoi((strings.Trim(commands[0], "*")))
+		mComp := fmt.Sprintf("$%d\r\n", len(mLen))
+		newMsg := fmt.Sprintf("%s\r\n%s\r\n", mComp, mLen)
+		// newMsg := mComp + strings.Join(commands[3:], "\r\n")
+		p(mLen)
+		p(mComp)
+		p(newMsg)
+		conn.Write([]byte(newMsg))
+	} else {
+		p("UNRECOGNIZED COMMAND")
+		conn.Write([]byte("-ERR unrecognized command\r\n"))
+	}
 }
+
+// func myParser(msg string) string{
+// 	if strings.ToUpper(commands[2]) == "PING" {
+// 		p(msg, "PING COMMAND")
+// 		conn.Write([]byte("+PONG\r\n"))
+// 	} else if strings.ToUpper(commands[1]) == "$" {
+// 		p(msg, "BULK STRING RECEIVED")
+// 		var mStr []string
+// 		for i := 4; i < len(commands)-1; i += 2 {
+// 			mStr = append(mStr, commands[i])
+// 		}
+// 		mLen := strings.Join(mStr, " ")
+// 		// mLen, _ := strconv.Atoi((strings.Trim(commands[0], "*")))
+// 		mComp := fmt.Sprintf("$%d\r\n", len(mLen))
+// 		newMsg := fmt.Sprintf("%s\r\n%s\r\n", mComp, mLen)
+// 		// newMsg := mComp + strings.Join(commands[3:], "\r\n")
+// 		p(mLen)
+// 		p(mComp)
+// 		p(newMsg)
+// 		conn.Write([]byte(newMsg))
+// 		// } else if strings.ToUpper(commands[2]) == "ECHO" {
+// 		// 	p(msg, "ECHO COMMAND")
+// 		// 	mLen, _ := strconv.Atoi((strings.Trim(commands[0], "*")))
+// 		// 	mLen = mLen - 1
+// 		// 	newMsg := ""
+// 		// 	if mLen > 1 {
+// 		// 		mLenStr := fmt.Sprintf("*%d\r\n", mLen)
+// 		// 		newMsg = mLenStr + strings.Join(commands[3:], "\r\n")
+// 		// 	} else {
+// 		// 		newMsg = strings.Join(commands[3:], "\r\n")
+// 		// 	}
+// 		// 	conn.Write([]byte(newMsg))
+// 	} else {
+// 		p("UNRECOGNIZED COMMAND")
+// 		conn.Write([]byte("-ERR unrecognized command\r\n"))
+// 	}
+// }
