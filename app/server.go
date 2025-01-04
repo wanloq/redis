@@ -65,6 +65,7 @@ func myParser(msg string) string {
 	fChar := fmt.Sprintf("*%d", comLen-1)
 	com := strings.ToUpper(strings.Join(msgStr[2:3], "\r\n"))
 	arg := strings.ToUpper(strings.Join(msgStr[3:], "\r\n"))
+	exArg := strings.ToUpper(strings.Join(msgStr[5:], "\r\n"))
 
 	switch {
 	case comLen == 1:
@@ -78,7 +79,7 @@ func myParser(msg string) string {
 			newMsg = fmt.Sprintf("%s%s%s%s", fChar, cr, arg, cr)
 			// for i := 4; i=len(comMsgStr)
 		} else if com == "SET" {
-			if comLen == 3 {
+			if comLen >= 3 {
 				key = strings.ToUpper(msgStr[4])
 				val = strings.ToUpper(msgStr[6])
 				data[key] = val
@@ -97,7 +98,7 @@ func myParser(msg string) string {
 					newMsg = fmt.Sprintf("$-1%s", cr)
 				}
 			} else {
-				newMsg = fmt.Sprintf("-ERR invalid number of arguments for the GET command%s", cr)
+				newMsg = fmt.Sprintf("-ERR invalid number of arguments for this command%s", cr)
 			}
 		} else {
 			newMsg = fmt.Sprintf("-ERR unrecognized command%s", cr)
