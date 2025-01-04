@@ -12,6 +12,7 @@ import (
 var _ = net.Listen
 var _ = os.Exit
 var p = fmt.Println
+var data = make(map[string]string)
 
 func main() {
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -57,39 +58,58 @@ func handleClient(conn net.Conn) {
 }
 
 func myParser(msg string) string {
-	newMsg := ""
+	var key, val, valLen, newMsg string
 	cr := "\r\n"
 	msgStr := strings.Split(msg, cr)
 	comLen, _ := strconv.Atoi(strings.Trim(msgStr[0], "*"))
-	first := msgStr[0]
+	fChar := fmt.Sprintf("*%d", comLen-1)
 	com := strings.ToUpper(strings.Join(msgStr[2:3], "\r\n"))
-	// command := strings.ToUpper(strings.Join(msgStr[1:3], "\r\n"))
 	arg := strings.ToUpper(strings.Join(msgStr[3:], "\r\n"))
 
 	switch {
 	case comLen == 1:
 		if com == "PING" {
-			p("SIMPLE STR")
 			newMsg = fmt.Sprintf("+PONG%s", cr)
 		} else {
 			newMsg = fmt.Sprintf("-ERR unrecognized command%s", cr)
 		}
 	case comLen >= 2:
 		if com == "ECHO" {
-			p("BULK STR")
-			newMsg = fmt.Sprintf("%s%s%s%s", first, cr, arg, cr)
-			// newMsg = fmt.Sprintf("%s%s%s%s", first, cr, command, cr)
+			newMsg = fmt.Sprintf("%s%s%s%s", fChar, cr, arg, cr)
+			// for i := 4; i=len(comMsgStr)
+		} else if com == "SET" {
+			if comLen == 3 {
+				key = strings.ToUpper(msgStr[4])
+				val = strings.ToUpper(msgStr[6])
+				data[key] = val
+				newMsg = fmt.Sprintf("+OK%s", cr)
+			} else {
+				newMsg = fmt.Sprintf("-ERR invalid number of arguments for the SET command%s", cr)
+			}
+		} else if com == "GET" {
+			if comLen == 2 {
+				key = strings.ToUpper(msgStr[4])
+				val = data[key]
+				if val != "" {
+					valLen = fmt.Sprintf("$%d", len(val))
+					newMsg = fmt.Sprintf("%s%s%s%s%s%s", fChar, cr, valLen, cr, val, cr)
+				} else {
+					newMsg = fmt.Sprintf("$-1%s", cr)
+				}
+			} else {
+				newMsg = fmt.Sprintf("-ERR invalid number of arguments for the GET command%s", cr)
+			}
 		} else {
 			newMsg = fmt.Sprintf("-ERR unrecognized command%s", cr)
 		}
-		// default:
-		// 	p("UNRECOGNIZED COMMAND")
 	}
-	// p("Arg:", arg)
-	// p("MsgStr:", msgStr)
-	// p("ComLen:", comLen)
-	// p("Command:", command)
-	// p("NewMsg:", newMsg)
+	p("key:", key)
+	p("val:", val)
+	p("data:", data)
+	p("Arg:", arg)
+	p("MsgStr:", msgStr)
+	p("ComLen:", comLen)
+	p("NewMsg:", newMsg)
 	return newMsg
 }
 
