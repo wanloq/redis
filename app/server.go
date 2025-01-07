@@ -2,10 +2,8 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -19,8 +17,11 @@ var data = make(map[string]string)
 
 var key, val, valLen, newMsg string
 var cr = "\r\n"
-var redisDir = "/tmp/redis-files"
+var redisDir = "./tmp/redis-files/"
 var fileName = "dump.rdb"
+var magicStr = "REDIS"
+var verNum = "0011"
+var redisVer = "7.0.15"
 
 // var msg = ""
 // var msgStr = strings.Split(msg, cr)
@@ -32,6 +33,7 @@ var fileName = "dump.rdb"
 func main() {
 	// You can use print statements as follows for debugging, they'll be visible when running tests.
 	p("Logs from your program will appear here!")
+	persistence(redisDir, fileName)
 
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
 	if err != nil {
@@ -40,7 +42,6 @@ func main() {
 	}
 	defer l.Close()
 	p("Listening on :6379...")
-	persistence(redisDir, fileName)
 
 	for {
 		conn, err := l.Accept()
@@ -93,6 +94,8 @@ func MyParser(msg string) string {
 		newMsg = GetCommand(fChar, com, comLen, msgStr)
 	case com == "CONFIG":
 		newMsg = ConfigGet(fChar, comLen, msgStr)
+	case com == "SAVE":
+		newMsg = SaveCommand(fChar, com, comLen, msgStr)
 	default:
 		newMsg = fmt.Sprintf("-ERR unrecognized command%s", cr)
 	}
@@ -100,9 +103,9 @@ func MyParser(msg string) string {
 	// p("val:", val)
 	// p("data:", data)
 	// p("Arg:", arg)
-	// p("MsgStr:", msgStr)
-	// p("ComLen:", comLen)
-	// p("NewMsg:", newMsg)
+	p("MsgStr:", msgStr)
+	p("ComLen:", comLen)
+	p("NewMsg:", newMsg)
 	return newMsg
 }
 
@@ -158,9 +161,9 @@ func ConfigGet(fChar string, comLen int, msgStr []string) string {
 		//*2\r\n $3\r\ndir\r\n$16\r\n/tmp/redis-files\r\n
 		command := msgStr[6]
 		lenCommand := fmt.Sprintf("$%d", len(command))
-		dirName := "/tmp/redis-files" //fmt.Sprintf("")
-		lenDirName := fmt.Sprintf("$%d", len(dirName))
-		newMsg = fmt.Sprintf("%s%s%s%s%s%s%s%s%s%s", fChar, cr, lenCommand, cr, command, cr, lenDirName, cr, dirName, cr)
+		// dirName := redisDir //"/tmp/redis-files" //fmt.Sprintf("")
+		lenDirName := fmt.Sprintf("$%d", len(redisDir))
+		newMsg = fmt.Sprintf("%s%s%s%s%s%s%s%s%s%s", fChar, cr, lenCommand, cr, command, cr, lenDirName, cr, redisDir, cr)
 	} else if strings.ToUpper(msgStr[4]) == "GET" && strings.ToUpper(msgStr[6]) == "DBFILENAME" {
 		command := msgStr[6]
 		lenCommand := fmt.Sprintf("$%d", len(command))
@@ -177,6 +180,21 @@ func ConfigGet(fChar string, comLen int, msgStr []string) string {
 
 	return newMsg
 }
+func SaveCommand(fChar, com string, comLen int, msgStr []string) string {
+	if com == "SAVE" {
+		if fileExists(redisDir, fileName) {
+			p("Updating file")
+			createFile(redisDir, fileName)
+			// oldData := ""
+			// newData := ""
+			// updateFile(redisDir+fileName, oldData, newData)
+		} else {
+			createFile(redisDir, fileName)
+		}
+		newMsg = fmt.Sprintf("+OK%s", cr)
+	}
+	return newMsg
+}
 
 func removeItem(key string, mapName map[string]string, exArg2 string) {
 	parsedTime, err := time.ParseDuration(exArg2)
@@ -189,29 +207,130 @@ func removeItem(key string, mapName map[string]string, exArg2 string) {
 }
 
 func persistence(redisDir, fileName string) {
-	//
-	cmd := exec.Command("mkdir", redisDir)
-	cmd.Dir = redisDir
-	err := cmd.Run()
-	if err != nil {
-		log.Panic("error: ", err)
+	if fileExists(redisDir, fileName) {
+		p("DB loaded from disk:")
+		rdbContent, _ := loadFileContent(redisDir, fileName)
+		contentStr := string(rdbContent)
+		p("Content:", contentStr)
+	} else {
+		p("No existing DB file on disk")
 	}
 
-	// err = os.Chdir(redisDir)
-	// if err != nil {
-	// 	log.Panic(err)
-	// }
-	_, err = os.Create("/" + fileName)
+	// p(magicStr)
+	// return newMsg
+}
+
+func updateFile(filename string, oldData string, newData string) error {
+	data, err := os.ReadFile(filename)
 	if err != nil {
-		log.Panic(err)
+		return fmt.Errorf("error reading file: %w", err)
 	}
+
+	newContent := strings.ReplaceAll(string(data), oldData, newData)
+
+	err = os.WriteFile(filename, []byte(newContent), 0644)
+	if err != nil {
+		return fmt.Errorf("error writing to file: %w", err)
+	}
+	return nil
+}
+
+func createFile(redisDir, fileName string) {
+	file, err := os.Create(redisDir + fileName)
+	// file, err := os.OpenFile(redisDir+fileName, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
+	if err != nil {
+		fmt.Println("Error opening file:", err)
+		return
+	}
+	defer file.Close()
+	//write header
+	header := magicStr + verNum
+	_, err = file.WriteString(header)
+	if err != nil {
+		fmt.Println("Error writing header:", err)
+		return
+	}
+	//write metadata
+	metadata := "redis-ver" + redisVer
+	file.Write([]byte{0xFA})
+	_, err = file.WriteString(metadata)
+	if err != nil {
+		fmt.Println("Error writing metadata:", err)
+		return
+	}
+	//write DB
+	file.Write([]byte{0xFE})
+	file.Write([]byte{00})
+	for key, value := range data {
+		if err := writeKeyValue(file, key, value); err != nil {
+			fmt.Println("Error writing key-value pair:", err)
+			return
+		}
+	}
+	_, err = file.WriteString(data[key])
+	if err != nil {
+		fmt.Println("Error writing content:", err)
+		return
+	}
+
+	fmt.Println("RDB written successfully!")
 
 }
 
-func createFile(fileName string) {
-	_, err := os.Create(fileName + ".rdb")
+func writeKeyValue(file *os.File, key, value string) error {
+	// Write type: 0x00 for String type
+	file.Write([]byte{0x00})
+
+	// Write key length and key
+	if err := writeLength(file, len(key)); err != nil {
+		return err
+	}
+	_, err := file.WriteString(key)
 	if err != nil {
-		log.Panic(err)
+		return err
 	}
 
+	// Write value length and value
+	if err := writeLength(file, len(value)); err != nil {
+		return err
+	}
+	_, err = file.WriteString(value)
+	return err
+}
+
+func writeLength(file *os.File, length int) error {
+	if length < (1 << 6) {
+		// Single-byte encoding for small lengths
+		_, err := file.Write([]byte{byte(length)})
+		return err
+	} else if length < (1 << 14) {
+		// Two-byte encoding for medium lengths
+		val := (length & 0x3FFF) | 0x4000
+		_, err := file.Write([]byte{byte(val >> 8), byte(val)})
+		return err
+	} else {
+		// Four-byte encoding for larger lengths
+		_, err := file.Write([]byte{0x80, byte(length >> 24), byte(length >> 16), byte(length >> 8), byte(length)})
+		return err
+	}
+}
+
+func loadFileContent(redisDir, filename string) ([]byte, error) {
+	content, err := os.ReadFile(redisDir + filename)
+	if err != nil {
+		return nil, fmt.Errorf("error reading file %s: %v", redisDir+filename, err)
+	}
+	return content, nil
+}
+
+func fileExists(redisDir, fileName string) bool {
+	_, err := os.Stat(redisDir + fileName)
+	if err == nil {
+		return true
+	}
+	if os.IsNotExist(err) {
+		return false
+	}
+	fmt.Println("Error checking file:", err)
+	return false
 }
