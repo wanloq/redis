@@ -22,6 +22,28 @@ var fileName = "dump.rdb"
 var magicStr = "REDIS"
 var verNum = "0011"
 var redisVer = "7.0.15"
+var respStr resp
+var database DB
+
+type resp struct {
+	Raw     string
+	RawStr  []string
+	Command string
+	Data    string
+	Arg     string
+	Arg2    string
+	ComLen  int
+	DataLen int
+	ArgLen  int
+	Arg2Len int
+	FChar   string
+}
+
+type DB struct {
+	Key   string
+	Value string
+	PX    time.Duration
+}
 
 // var msg = ""
 // var msgStr = strings.Split(msg, cr)
@@ -54,6 +76,24 @@ func main() {
 	}
 }
 
+func debug() {
+
+	p("key:", key)
+	p("val:", val)
+	p("MAP:", data)
+	// p("RAW:", respStr.Raw)
+	p("RAW STR SLICE:", respStr.RawStr)
+	p("COMMAND:", respStr.Command)
+	p("DATA:", respStr.Data)
+	p("ARGUMENT:", respStr.Arg)
+	p("COMLEN:", respStr.ComLen)
+	p("DATALEN:", respStr.DataLen)
+	p("ARGUMENTLEN:", respStr.ArgLen)
+	p("FCHAR:", respStr.FChar)
+	p("NEW MSG:", newMsg)
+	// p("OTHER:", respStr)
+}
+
 func handleClient(conn net.Conn) {
 	// Ensure we close the connection after we're done
 	defer conn.Close()
@@ -62,50 +102,47 @@ func handleClient(conn net.Conn) {
 		// Read data
 		buf := make([]byte, 1024)
 		n, err := conn.Read(buf)
-		msg := string(buf[:n])
 		if err != nil {
 			continue
 		}
 
 		// Write new data
-		newMsg := MyParser(msg)
+		newMsg := ProcessCommand(buf, n)
 		conn.Write([]byte(newMsg))
 
 	}
 }
 
-func MyParser(msg string) string {
-	// var key, val, valLen, newMsg string
-	// cr := "\r\n"
-	msgStr := strings.Split(msg, cr)
-	comLen, _ := strconv.Atoi(strings.Trim(msgStr[0], "*"))
-	fChar := fmt.Sprintf("*%d", comLen-1)
-	com := strings.ToUpper(strings.Join(msgStr[2:3], "\r\n"))
-	arg := strings.ToUpper(strings.Join(msgStr[3:], "\r\n"))
+func MyParser(buf []byte, n int) resp {
 
+	respStr.Raw = string(buf[:n])                                                //msg
+	respStr.RawStr = strings.Split(respStr.Raw, cr)                              //msgstr
+	respStr.Command = strings.ToUpper(strings.Join(respStr.RawStr[2:3], "\r\n")) //com
+	respStr.Data = strings.ToUpper(strings.Join(respStr.RawStr[3:], "\r\n"))     //arg
+	respStr.ComLen, _ = strconv.Atoi(strings.Trim(respStr.RawStr[0], "*"))       //comlen
+	respStr.FChar = fmt.Sprintf("*%d", respStr.ComLen-1)                         //fchar
+
+	return respStr
+}
+
+func ProcessCommand(buf []byte, n int) string {
+	MyParser(buf, n)
 	switch {
-	case com == "PING":
+	case respStr.Command == "PING":
 		newMsg = PingCommand()
-	case com == "ECHO":
-		newMsg = EchoCommand(fChar, arg)
-	case com == "SET":
-		newMsg = SetCommand(fChar, com, comLen, msgStr)
-	case com == "GET":
-		newMsg = GetCommand(fChar, com, comLen, msgStr)
-	case com == "CONFIG":
-		newMsg = ConfigGet(fChar, comLen, msgStr)
-	case com == "SAVE":
-		newMsg = SaveCommand(fChar, com, comLen, msgStr)
+	case respStr.Command == "ECHO":
+		newMsg = EchoCommand(respStr.FChar, respStr.Data)
+	case respStr.Command == "SET":
+		newMsg = SetCommand(respStr.FChar, respStr.Command, respStr.ComLen, respStr.RawStr)
+	case respStr.Command == "GET":
+		newMsg = GetCommand(respStr.FChar, respStr.Command, respStr.ComLen, respStr.RawStr)
+	case respStr.Command == "CONFIG":
+		newMsg = ConfigGet(respStr.FChar, respStr.ComLen, respStr.RawStr)
+	case respStr.Command == "SAVE":
+		newMsg = SaveCommand(respStr.FChar, respStr.Command, respStr.ComLen, respStr.RawStr)
 	default:
 		newMsg = fmt.Sprintf("-ERR unrecognized command%s", cr)
 	}
-	// p("key:", key)
-	// p("val:", val)
-	// p("data:", data)
-	// p("Arg:", arg)
-	p("MsgStr:", msgStr)
-	p("ComLen:", comLen)
-	p("NewMsg:", newMsg)
 	return newMsg
 }
 
@@ -114,85 +151,81 @@ func PingCommand() string {
 	return newMsg
 }
 func EchoCommand(fChar, arg string) string {
-	newMsg = fmt.Sprintf("%s%s%s%s", fChar, cr, arg, cr)
+	newMsg = fmt.Sprintf("%s%s%s%s", respStr.FChar, cr, respStr.Data, cr)
 	return newMsg
 }
 func SetCommand(fChar, com string, comLen int, msgStr []string) string {
-	if com == "SET" {
-		if comLen >= 3 {
-			key = strings.ToUpper(msgStr[4])
-			val = strings.ToUpper(msgStr[6])
-			if comLen == 5 {
-				exArg1 := strings.ToUpper(msgStr[8])
-				exArg2 := msgStr[10]
-				if exArg1 == "PX" {
-					removeItem(key, data, exArg2)
-					newMsg = fmt.Sprintf("+OK%s", cr)
-				}
-			} else {
-				data[key] = val
+	// if com == "SET" {
+	if respStr.ComLen >= 3 {
+		key = respStr.RawStr[4]
+		val = respStr.RawStr[6]
+		if respStr.ComLen == 5 {
+			exArg1 := strings.ToUpper(respStr.RawStr[8])
+			exArg2 := respStr.RawStr[10]
+			if exArg1 == "PX" {
+				removeItem(key, data, exArg2)
 				newMsg = fmt.Sprintf("+OK%s", cr)
 			}
+		} else {
+			data[key] = val
+			newMsg = fmt.Sprintf("+OK%s", cr)
 		}
-	} else {
-		newMsg = fmt.Sprintf("-ERR invalid number of arguments for the SET command%s", cr)
 	}
+	debug()
+	// } else {
+	// 	newMsg = fmt.Sprintf("-ERR invalid number of arguments for the SET command%s", cr)
+	// }
 	return newMsg
 }
 func GetCommand(fChar, com string, comLen int, msgStr []string) string {
-	if com == "GET" {
-		if comLen == 2 {
-			key = strings.ToUpper(msgStr[4])
-			val = data[key]
-			if val != "" {
-				valLen = fmt.Sprintf("$%d", len(val))
-				newMsg = fmt.Sprintf("%s%s%s%s%s%s", fChar, cr, valLen, cr, val, cr)
-			} else {
-				newMsg = fmt.Sprintf("$-1%s", cr)
-			}
+	// if com == "GET" {
+	if respStr.ComLen == 2 {
+		key = respStr.RawStr[4]
+		val = data[key]
+		if val != "" {
+			valLen = fmt.Sprintf("$%d", len(val))
+			newMsg = fmt.Sprintf("%s%s%s%s%s%s", respStr.FChar, cr, valLen, cr, val, cr)
 		} else {
-			newMsg = fmt.Sprintf("-ERR invalid number of arguments for this command%s", cr)
+			newMsg = fmt.Sprintf("$-1%s", cr)
 		}
-	}
-	return newMsg
-}
-func ConfigGet(fChar string, comLen int, msgStr []string) string {
-	if strings.ToUpper(msgStr[4]) == "GET" && strings.ToUpper(msgStr[6]) == "DIR" {
-		//*2\r\n $3\r\ndir\r\n$16\r\n/tmp/redis-files\r\n
-		command := msgStr[6]
-		lenCommand := fmt.Sprintf("$%d", len(command))
-		// dirName := redisDir //"/tmp/redis-files" //fmt.Sprintf("")
-		lenDirName := fmt.Sprintf("$%d", len(redisDir))
-		newMsg = fmt.Sprintf("%s%s%s%s%s%s%s%s%s%s", fChar, cr, lenCommand, cr, command, cr, lenDirName, cr, redisDir, cr)
-	} else if strings.ToUpper(msgStr[4]) == "GET" && strings.ToUpper(msgStr[6]) == "DBFILENAME" {
-		command := msgStr[6]
-		lenCommand := fmt.Sprintf("$%d", len(command))
-		// fileName = "dump.rdb" //fmt.Sprintf("")
-		lenDirName := fmt.Sprintf("$%d", len(fileName))
-		newMsg = fmt.Sprintf("%s%s%s%s%s%s%s%s%s%s", fChar, cr, lenCommand, cr, command, cr, lenDirName, cr, fileName, cr)
 	} else {
 		newMsg = fmt.Sprintf("-ERR invalid number of arguments for this command%s", cr)
 	}
-
-	p("MsgStr:", msgStr)
-	p("ComLen:", comLen)
-	p("NewMsg:", newMsg)
-
+	// }
+	return newMsg
+}
+func ConfigGet(fChar string, comLen int, msgStr []string) string {
+	if strings.ToUpper(respStr.RawStr[4]) == "GET" && strings.ToUpper(respStr.RawStr[6]) == "DIR" {
+		//*2\r\n $3\r\ndir\r\n$16\r\n/tmp/redis-files\r\n
+		command := respStr.RawStr[6]
+		lenCommand := fmt.Sprintf("$%d", len(command))
+		// dirName := redisDir //"/tmp/redis-files" //fmt.Sprintf("")
+		lenDirName := fmt.Sprintf("$%d", len(redisDir))
+		newMsg = fmt.Sprintf("%s%s%s%s%s%s%s%s%s%s", respStr.FChar, cr, lenCommand, cr, command, cr, lenDirName, cr, redisDir, cr)
+	} else if strings.ToUpper(respStr.RawStr[4]) == "GET" && strings.ToUpper(respStr.RawStr[6]) == "DBFILENAME" {
+		command := respStr.RawStr[6]
+		lenCommand := fmt.Sprintf("$%d", len(command))
+		// fileName = "dump.rdb" //fmt.Sprintf("")
+		lenDirName := fmt.Sprintf("$%d", len(fileName))
+		newMsg = fmt.Sprintf("%s%s%s%s%s%s%s%s%s%s", respStr.FChar, cr, lenCommand, cr, command, cr, lenDirName, cr, fileName, cr)
+	} else {
+		newMsg = fmt.Sprintf("-ERR invalid number of arguments for this command%s", cr)
+	}
 	return newMsg
 }
 func SaveCommand(fChar, com string, comLen int, msgStr []string) string {
-	if com == "SAVE" {
-		if fileExists(redisDir, fileName) {
-			p("Updating file")
-			createFile(redisDir, fileName)
-			// oldData := ""
-			// newData := ""
-			// updateFile(redisDir+fileName, oldData, newData)
-		} else {
-			createFile(redisDir, fileName)
-		}
-		newMsg = fmt.Sprintf("+OK%s", cr)
+	// if com == "SAVE" {
+	if fileExists(redisDir, fileName) {
+		p("Updating file")
+		createFile(redisDir, fileName)
+		// oldData := ""
+		// newData := ""
+		// updateFile(redisDir+fileName, oldData, newData)
+	} else {
+		createFile(redisDir, fileName)
 	}
+	newMsg = fmt.Sprintf("+OK%s", cr)
+	// }
 	return newMsg
 }
 
@@ -237,7 +270,6 @@ func updateFile(filename string, oldData string, newData string) error {
 
 func createFile(redisDir, fileName string) {
 	file, err := os.Create(redisDir + fileName)
-	// file, err := os.OpenFile(redisDir+fileName, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644)
 	if err != nil {
 		fmt.Println("Error opening file:", err)
 		return
@@ -261,27 +293,19 @@ func createFile(redisDir, fileName string) {
 	//write DB
 	file.Write([]byte{0xFE})
 	file.Write([]byte{00})
-	for key, value := range data {
-		if err := writeKeyValue(file, key, value); err != nil {
-			fmt.Println("Error writing key-value pair:", err)
-			return
-		}
-	}
-	_, err = file.WriteString(data[key])
-	if err != nil {
-		fmt.Println("Error writing content:", err)
-		return
-	}
+	//write key-vals to db
+	// for key, value := range data {
+	// 	//
 
+	// }
+	p(data)
 	fmt.Println("RDB written successfully!")
 
 }
 
 func writeKeyValue(file *os.File, key, value string) error {
-	// Write type: 0x00 for String type
 	file.Write([]byte{0x00})
 
-	// Write key length and key
 	if err := writeLength(file, len(key)); err != nil {
 		return err
 	}
@@ -290,7 +314,6 @@ func writeKeyValue(file *os.File, key, value string) error {
 		return err
 	}
 
-	// Write value length and value
 	if err := writeLength(file, len(value)); err != nil {
 		return err
 	}
