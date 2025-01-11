@@ -160,10 +160,12 @@ func SetCommand(fChar, com string, comLen int, msgStr []string) string {
 		key = respStr.RawStr[4]
 		val = respStr.RawStr[6]
 		if respStr.ComLen == 5 {
-			exArg1 := strings.ToUpper(respStr.RawStr[8])
-			exArg2 := respStr.RawStr[10]
-			if exArg1 == "PX" {
-				removeItem(key, data, exArg2)
+			respStr.Arg = strings.ToUpper(respStr.RawStr[8])
+			respStr.Arg2 = respStr.RawStr[10] + "ms"
+			if respStr.Arg == "PX" {
+				data[key] = val
+				p("removing item in", respStr.Arg2)
+				go removeItem(key, data, respStr.Arg2)
 				newMsg = fmt.Sprintf("+OK%s", cr)
 			}
 		} else {
@@ -171,7 +173,7 @@ func SetCommand(fChar, com string, comLen int, msgStr []string) string {
 			newMsg = fmt.Sprintf("+OK%s", cr)
 		}
 	}
-	debug()
+	// debug()
 	// } else {
 	// 	newMsg = fmt.Sprintf("-ERR invalid number of arguments for the SET command%s", cr)
 	// }
@@ -229,14 +231,13 @@ func SaveCommand(fChar, com string, comLen int, msgStr []string) string {
 	return newMsg
 }
 
-func removeItem(key string, mapName map[string]string, exArg2 string) {
-	parsedTime, err := time.ParseDuration(exArg2)
+func removeItem(key string, mapName map[string]string, pxTime string) {
+	parsedTime, err := time.ParseDuration(pxTime)
 	if err != nil {
-		return
+		p(err)
 	}
-	time.Sleep(parsedTime * time.Millisecond)
+	time.Sleep(parsedTime)
 	delete(mapName, key)
-	// return "Deleted"
 }
 
 func persistence(redisDir, fileName string) {
@@ -292,36 +293,45 @@ func createFile(redisDir, fileName string) {
 	}
 	//write DB
 	file.Write([]byte{0xFE})
-	file.Write([]byte{00})
+	dbIndex := 00
+	file.Write([]byte{byte(dbIndex)})
 	//write key-vals to db
-	// for key, value := range data {
-	// 	//
+	for key, value := range data {
+		_, err = file.WriteString(fmt.Sprintf("%s: %s\n", key, value))
+		if err != nil {
+			return
+		}
+	}
 
-	// }
+	//Write end marker
+	_, err = file.WriteString("# End of File\n")
+	if err != nil {
+		return
+	}
 	p(data)
 	fmt.Println("RDB written successfully!")
 
 }
 
-func writeKeyValue(file *os.File, key, value string) error {
-	file.Write([]byte{0x00})
+// func writeKeyValue(file *os.File, key, value string) error {
+// 	file.Write([]byte{0x00})
 
-	if err := writeLength(file, len(key)); err != nil {
-		return err
-	}
-	_, err := file.WriteString(key)
-	if err != nil {
-		return err
-	}
+// 	if err := writeLength(file, len(key)); err != nil {
+// 		return err
+// 	}
+// 	_, err := file.WriteString(key)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	if err := writeLength(file, len(value)); err != nil {
-		return err
-	}
-	_, err = file.WriteString(value)
-	return err
-}
+// 	if err := writeLength(file, len(value)); err != nil {
+// 		return err
+// 	}
+// 	_, err = file.WriteString(value)
+// 	return err
+// }
 
-func writeLength(file *os.File, length int) error {
+// func writeLength(file *os.File, length int) error {
 	if length < (1 << 6) {
 		// Single-byte encoding for small lengths
 		_, err := file.Write([]byte{byte(length)})
@@ -336,7 +346,7 @@ func writeLength(file *os.File, length int) error {
 		_, err := file.Write([]byte{0x80, byte(length >> 24), byte(length >> 16), byte(length >> 8), byte(length)})
 		return err
 	}
-}
+// }
 
 func loadFileContent(redisDir, filename string) ([]byte, error) {
 	content, err := os.ReadFile(redisDir + filename)
