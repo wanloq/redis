@@ -25,6 +25,13 @@ var redisVer = "7.0.15"
 var respStr resp
 var database DB
 
+const (
+	typeString = 0x00
+	typeDB     = 0xFE
+	eofMarker  = 0xFF
+	dbIndex    = 00
+)
+
 type resp struct {
 	Raw     string
 	RawStr  []string
@@ -136,6 +143,8 @@ func ProcessCommand(buf []byte, n int) string {
 		newMsg = SetCommand(respStr.FChar, respStr.Command, respStr.ComLen, respStr.RawStr)
 	case respStr.Command == "GET":
 		newMsg = GetCommand(respStr.FChar, respStr.Command, respStr.ComLen, respStr.RawStr)
+	case respStr.Command == "KEYS":
+		newMsg = GetCommand(respStr.FChar, respStr.Command, respStr.ComLen, respStr.RawStr)
 	case respStr.Command == "CONFIG":
 		newMsg = ConfigGet(respStr.FChar, respStr.ComLen, respStr.RawStr)
 	case respStr.Command == "SAVE":
@@ -155,7 +164,6 @@ func EchoCommand(fChar, arg string) string {
 	return newMsg
 }
 func SetCommand(fChar, com string, comLen int, msgStr []string) string {
-	// if com == "SET" {
 	if respStr.ComLen >= 3 {
 		key = respStr.RawStr[4]
 		val = respStr.RawStr[6]
@@ -173,14 +181,9 @@ func SetCommand(fChar, com string, comLen int, msgStr []string) string {
 			newMsg = fmt.Sprintf("+OK%s", cr)
 		}
 	}
-	// debug()
-	// } else {
-	// 	newMsg = fmt.Sprintf("-ERR invalid number of arguments for the SET command%s", cr)
-	// }
 	return newMsg
 }
 func GetCommand(fChar, com string, comLen int, msgStr []string) string {
-	// if com == "GET" {
 	if respStr.ComLen == 2 {
 		key = respStr.RawStr[4]
 		val = data[key]
@@ -193,7 +196,21 @@ func GetCommand(fChar, com string, comLen int, msgStr []string) string {
 	} else {
 		newMsg = fmt.Sprintf("-ERR invalid number of arguments for this command%s", cr)
 	}
-	// }
+	return newMsg
+}
+func KeysCommand(fChar, com string, comLen int, msgStr []string) string {
+	if respStr.ComLen == 2 {
+		key = respStr.RawStr[4]
+		val = data[key]
+		if val != "" {
+			valLen = fmt.Sprintf("$%d", len(val))
+			newMsg = fmt.Sprintf("%s%s%s%s%s%s", respStr.FChar, cr, valLen, cr, val, cr)
+		} else {
+			newMsg = fmt.Sprintf("$-1%s", cr)
+		}
+	} else {
+		newMsg = fmt.Sprintf("-ERR invalid number of arguments for this command%s", cr)
+	}
 	return newMsg
 }
 func ConfigGet(fChar string, comLen int, msgStr []string) string {
@@ -292,30 +309,71 @@ func createFile(redisDir, fileName string) {
 		return
 	}
 	//write DB
-	file.Write([]byte{0xFE})
-	dbIndex := 00
+	file.Write([]byte{typeDB})
 	file.Write([]byte{byte(dbIndex)})
 	//write key-vals to db
-	for key, value := range data {
-		_, err = file.WriteString(fmt.Sprintf("%s: %s\n", key, value))
-		if err != nil {
-			return
-		}
-	}
+	writeKeyValue(file)
 
-	//Write end marker
-	_, err = file.WriteString("# End of File\n")
-	if err != nil {
-		return
-	}
+	//Write end-of-file
+	file.Write([]byte{eofMarker})
 	p(data)
 	fmt.Println("RDB written successfully!")
 
 }
+func writeKeyValue(file *os.File) {
+
+	for k, v := range data {
+		// write type
+		file.Write([]byte{typeString})
+		writer(file, k)
+		writer(file, v)
+
+		// klen := len(k)
+		// vlen := len(v)
+		// if klen < 64 && vlen < 64 {
+		// 	file.Write([]byte{byte(klen)})
+		// 	// write key
+		// 	file.WriteString(k)
+		// 	// write vlen
+		// 	file.Write([]byte{byte(vlen)})
+		// 	// write val
+		// 	file.WriteString(v)
+		// } else if klen < 16384 && vlen < 16384 {
+		// 	highByte := (length / 256) | 0x40
+		// 	lowByte := length % 256
+		// 	lengthBytes := []byte{byte(highByte), byte(lowByte)}
+		// 	_, err := file.Write(lengthBytes)
+		// 	if err != nil {
+		// 		return err
+		// 	}
+		// } else {
+		// }
+	}
+}
+
+func writer(file *os.File, str string) {
+
+	strLen := len(str)
+
+	if strLen < 64 {
+		//write len
+		file.Write([]byte{byte(strLen)})
+	} else if strLen < 16384 {
+		highByte := (strLen / 256) | 0x40
+		lowByte := strLen % 256
+		strLenBytes := []byte{byte(highByte), byte(lowByte)}
+		//write strlenbytes
+		file.Write(strLenBytes)
+	} else {
+		//invalid len
+		p("Invalid len: ", strLen)
+	}
+	//write str
+	file.WriteString(str)
+}
 
 // func writeKeyValue(file *os.File, key, value string) error {
 // 	file.Write([]byte{0x00})
-
 // 	if err := writeLength(file, len(key)); err != nil {
 // 		return err
 // 	}
@@ -323,7 +381,6 @@ func createFile(redisDir, fileName string) {
 // 	if err != nil {
 // 		return err
 // 	}
-
 // 	if err := writeLength(file, len(value)); err != nil {
 // 		return err
 // 	}
@@ -332,20 +389,20 @@ func createFile(redisDir, fileName string) {
 // }
 
 // func writeLength(file *os.File, length int) error {
-	if length < (1 << 6) {
-		// Single-byte encoding for small lengths
-		_, err := file.Write([]byte{byte(length)})
-		return err
-	} else if length < (1 << 14) {
-		// Two-byte encoding for medium lengths
-		val := (length & 0x3FFF) | 0x4000
-		_, err := file.Write([]byte{byte(val >> 8), byte(val)})
-		return err
-	} else {
-		// Four-byte encoding for larger lengths
-		_, err := file.Write([]byte{0x80, byte(length >> 24), byte(length >> 16), byte(length >> 8), byte(length)})
-		return err
-	}
+// 	if length < (1 << 6) {
+// 		// Single-byte encoding for small lengths
+// 		_, err := file.Write([]byte{byte(length)})
+// 		return err
+// 	} else if length < (1 << 14) {
+// 		// Two-byte encoding for medium lengths
+// 		val := (length & 0x3FFF) | 0x4000
+// 		_, err := file.Write([]byte{byte(val >> 8), byte(val)})
+// 		return err
+// 	} else {
+// 		// Four-byte encoding for larger lengths
+// 		_, err := file.Write([]byte{0x80, byte(length >> 24), byte(length >> 16), byte(length >> 8), byte(length)})
+// 		return err
+// 	}
 // }
 
 func loadFileContent(redisDir, filename string) ([]byte, error) {
