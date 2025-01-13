@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"os"
@@ -14,16 +15,19 @@ var _ = net.Listen
 var _ = os.Exit
 var p = fmt.Println
 var data = make(map[string]string)
-
-var key, val, valLen, newMsg string
-var cr = "\r\n"
-var redisDir = "./tmp/redis-files/"
-var fileName = "dump.rdb"
-var magicStr = "REDIS"
-var verNum = "0011"
-var redisVer = "7.0.15"
 var respStr resp
 var database DB
+
+var key, val, valLen, newMsg string
+
+const (
+	cr       = "\r\n"
+	redisDir = "./tmp/redis-files/"
+	fileName = "dump.rdb"
+	magicStr = "REDIS"
+	verNum   = "0011"
+	redisVer = "7.0.15"
+)
 
 const (
 	typeString = 0x00
@@ -261,14 +265,120 @@ func persistence(redisDir, fileName string) {
 	if fileExists(redisDir, fileName) {
 		p("DB loaded from disk:")
 		rdbContent, _ := loadFileContent(redisDir, fileName)
-		contentStr := string(rdbContent)
-		p("Content:", contentStr)
+		// contentStr := string(rdbContent)
+		// rdbParser(rdbContent)
+		// p("Content:", contentStr)
+
+		reader := bytes.NewReader(rdbContent)
+
+		//validate header
+		if err := parseHeader(reader); err != nil {
+			p("error: ", err)
+			return
+		}
+		if err := rdbParser(reader); err != nil {
+			p("parsing failed: ", err)
+			return
+		}
 	} else {
 		p("No existing DB file on disk")
 	}
 
 	// p(magicStr)
 	// return newMsg
+}
+func rdbParser(reader *bytes.Reader) error {
+
+	for {
+		// Read the next byte
+		prefix, err := reader.ReadByte()
+		if err != nil {
+			return fmt.Errorf("failed to read prefix: %w", err)
+		}
+
+		if prefix == 0x52 {
+			//validate header
+		} else if prefix == 0xFA {
+			//validate metadata
+		} else if prefix == 0xFE { // Start of a new DB section
+			dbIndex, err := reader.ReadByte()
+			if err != nil {
+				return fmt.Errorf("failed to read DB index: %w", err)
+			}
+			fmt.Printf("Loading DB index: %d\n", dbIndex)
+		} else if prefix == 0x00 { // Key-Value pair (simple string)
+			//extract key-val str
+			if err := parseKeyValue(reader); err != nil {
+				return fmt.Errorf("failed to parse key-value: %w", err)
+			}
+		} else if prefix == 0xFF { // EOF Marker
+			fmt.Println("End of RDB file reached.")
+			break
+		} else {
+			return fmt.Errorf("unknown prefix byte: 0x%x", prefix)
+		}
+	}
+	return nil
+}
+func parseHeader(reader *bytes.Reader) error {
+	header := make([]byte, 9) // 5 bytes for "REDIS" + 4 bytes for version
+	if _, err := reader.Read(header); err != nil {
+		return fmt.Errorf("failed to read header: %w", err)
+	}
+	ms := (string(header[:5]))
+	ver := string(header[5:])
+	if ms+ver != magicStr+verNum {
+		return fmt.Errorf("invalid header")
+	}
+	p("Valid RDB file.", string(header[0:]))
+	return nil
+}
+
+func parseKeyValue(reader *bytes.Reader) error {
+	//extract key-val str
+	k, err := extractKeyValue(reader)
+	if err != nil {
+		return fmt.Errorf("error: %v", err)
+	}
+	v, err := extractKeyValue(reader)
+	if err != nil {
+		return fmt.Errorf("error: %v", err)
+	}
+	// save str to map
+	data[k] = v
+	return nil
+}
+
+func extractKeyValue(reader *bytes.Reader) (string, error) {
+	// detect len
+	strLen, _ := readStrLen(reader)
+	// detect str
+	str := make([]byte, strLen)
+	reader.Read(str)
+
+	// return
+	return string(str), nil
+}
+
+func readStrLen(reader *bytes.Reader) (int, error) {
+	firstByte, err := reader.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+
+	if firstByte < 64 { // Single-byte length
+		return int(firstByte), nil
+	} else if firstByte < 128 { // Two-byte length
+		secondByte, err := reader.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		highBits := int(firstByte) - 64 // Remove the "two-byte" flag
+		strLen := highBits*256 + int(secondByte)
+		return strLen, nil
+	}
+
+	return 0, fmt.Errorf("unsupported len encoding")
 }
 
 func updateFile(filename string, oldData string, newData string) error {
